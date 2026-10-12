@@ -52,15 +52,6 @@
 </head>
 <body>
 <div class="app">
-  <div id="gate" hidden>
-    <h1>需要访问口令</h1>
-    <p class="sub">这个页面只有知道口令的人能看</p>
-    <div class="card" style="padding:14px">
-      <input id="gateInput" type="password" inputmode="numeric" placeholder="访问口令" autocomplete="off">
-      <p class="note" id="gateErr" style="margin:0 0 10px;color:#c8493a" hidden>口令不对，再试一次</p>
-      <button class="primary" id="gateBtn" style="width:100%">打开</button>
-    </div>
-  </div>
   <div id="body-all">
   <h1>访问记录</h1>
   <p class="sub">「我们的小空间」什么时候被打开过（这台设备是谁、什么设备、几点）</p>
@@ -103,8 +94,6 @@
   'use strict';
   var GIST_KEY = 'sister-habits-gist';
   var PASS_KEY = 'sister-habits-pass-v1';
-  var OK_KEY = 'sister-habits-logok';
-  var CODE_HASH = '3f96dc5e399af628038390521d564d07f53fd9b00a1e16540563081864bfc1a2';
   var FILE = 'daka.json';
   var API = 'https://api.github.com/gists/';
   var PASS = { pass:'', salt:'' };
@@ -138,18 +127,6 @@
     }).then(function(buf){ return new TextDecoder().decode(buf); });
   }
   function el(id){ return document.getElementById(id); }
-  function codeOk(){
-    try{ return localStorage.getItem(OK_KEY) === '1'; }catch(e){ return false; }
-  }
-  function sha256Hex(text){
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function(buf){
-      return Array.prototype.map.call(new Uint8Array(buf), function(b){ return ('0' + b.toString(16)).slice(-2); }).join('');
-    });
-  }
-  function showGate(){
-    el('gate').hidden = false;
-    el('body-all').hidden = true;
-  }
   function pad(n){ return (n<10?'0':'')+n; }
   function dayKey(ts){ var d = new Date(ts); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
   function hm(ts){ var d = new Date(ts); return pad(d.getHours())+':'+pad(d.getMinutes()); }
@@ -168,7 +145,7 @@
     el('sSis').textContent = list.filter(function(v){ return v.who === '妹妹'; }).length;
     el('sBro').textContent = list.filter(function(v){ return v.who === '哥哥'; }).length;
     el('sLast').textContent = list.length ? (dayLabel(dayKey(list[0].last||list[0].ts)).split(' · ')[0] + ' ' + hm(list[0].last||list[0].ts)) : '—';
-    if(!list.length){ el('list').innerHTML = '<div class="card"><div class="empty">还没有访问记录（下次打开主程序就会记上）</div></div>'; return; }
+    if(!list.length){ el('list').innerHTML = '<div class="card"><div class="empty">还没有访问记录。访问记录是从「主程序被打开」那一刻开始记的：先在手机/电脑上刷新一次「我们的小空间」，再回来刷新这个页面就能看到了（每台设备要各自刷新一次）。</div></div>'; return; }
     var days = {}, order = [];
     list.forEach(function(v){
       var k = dayKey(v.last || v.ts);
@@ -195,9 +172,6 @@
     }).join('');
   }
   function load(){
-    if(!codeOk()){ showGate(); return; }
-    el('gate').hidden = true;
-    el('body-all').hidden = false;
     var c = cfg();
     el('needCfg').hidden = !!c;
     el('needPass').hidden = true;
@@ -319,24 +293,8 @@
   });
   el('reload').addEventListener('click', load);
   el('back').addEventListener('click', function(){ location.href = './'; });
-  el('gateBtn').addEventListener('click', function(){
-    var v = el('gateInput').value.trim();
-    if(!v){ el('gateInput').focus(); return; }
-    sha256Hex(v).then(function(hex){
-      if(hex === CODE_HASH){
-        try{ localStorage.setItem(OK_KEY, '1'); }catch(e){}
-        el('gateErr').hidden = true;
-        load();
-      }else{
-        el('gateErr').hidden = false;
-        el('gateInput').value = '';
-        el('gateInput').focus();
-      }
-    });
-  });
-  el('gateInput').addEventListener('keydown', function(e){ if(e.key === 'Enter') el('gateBtn').click(); });
   load();
-  setInterval(function(){ if(codeOk()) load(); }, 60000);
+  setInterval(load, 60000);
 })();
 </script>
 </body>
