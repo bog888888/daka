@@ -33,6 +33,12 @@
   .main{flex:1;min-width:0}
   .t1{font-size:13.5px}
   .t2{font-size:11.5px;color:var(--muted-2);margin-top:3px}
+  .tag-acts{display:flex;gap:6px;margin-top:7px;flex-wrap:wrap}
+  .tag-acts button{height:26px;padding:0 9px;font-size:11.5px;border-radius:8px}
+  .tag-acts button.sis{border-color:#bfe0cd;color:#2f8f61;background:#f2faf5}
+  .tag-acts button.bro{border-color:#c7cff1;color:#4a5fc4;background:#f3f5fd}
+  .tag-acts button.small{color:var(--muted-2)}
+  .saved-tip{font-size:11.5px;color:var(--muted-2);margin-top:6px}
   .empty{color:var(--muted-2);font-size:13px;padding:14px}
   .acts{display:flex;gap:8px;margin-top:14px}
   button{height:38px;padding:0 14px;border:1px solid var(--line-strong);border-radius:10px;
@@ -175,9 +181,16 @@
           var who = v.who === '妹妹' || v.who === '哥哥' ? v.who : '未标注';
           var cls = v.who === '妹妹' ? 'sis' : (v.who === '哥哥' ? 'bro' : 'none');
           var times = (v.count || 1) > 1 ? (' · 打开 ' + v.count + ' 次（' + hm(v.ts) + ' 起）') : '';
+          var acts = '<div class="tag-acts"' + (v.who ? ' hidden' : '') + ' data-tag-row="' + v.dev + '">' +
+            '<button class="sis" data-tag="妹妹" data-dev="' + v.dev + '">标为妹妹</button>' +
+            '<button class="bro" data-tag="哥哥" data-dev="' + v.dev + '">标为哥哥</button>' +
+            '</div>';
+          var change = v.who ? ' <button class="small" data-show-tag="' + v.dev + '">改标注</button>' : '';
           return '<div class="row"><span class="who ' + cls + '">' + who + '</span><div class="main">' +
             '<div class="t1">' + hm(v.last || v.ts) + ' 打开' + times + '</div>' +
-            '<div class="t2">' + (v.devName || '设备') + ' · 程序 v' + (v.v || '?') + '</div></div></div>';
+            '<div class="t2">' + (v.devName || '设备') + ' · 程序 v' + (v.v || '?') + ' ' + change + '</div>' +
+            acts +
+            '</div></div>';
         }).join('') + '</div>';
     }).join('');
   }
@@ -203,18 +216,97 @@
           PASS.salt = payload.salt || ps.salt || '';
           if(!PASS.pass){ el('needPass').hidden = false; el('list').innerHTML = ''; return null; }
           return openText(doc, PASS.salt, PASS.pass).then(function(text){
-            render(JSON.parse(text).visits);
+            lastDoc = JSON.parse(text);
+            render(lastDoc.visits);
           }).catch(function(){
             el('needPass').hidden = false;
             el('list').innerHTML = '<div class="card"><div class="empty">口令不对，重新输一次</div></div>';
           });
         }
-        render((doc && doc.visits) || []);
+        lastDoc = doc || {};
+        render((lastDoc && lastDoc.visits) || []);
       })
       .catch(function(e){
         el('list').innerHTML = '<div class="card"><div class="empty">读不到数据：' + (e && e.message || e) + '</div></div>';
       });
   }
+  // 手动标注：把"这台设备是谁"写进数据（devNames + 把该设备以前没标注的记录补上），再推回数据柜
+  var lastDoc = null, lastRev = 0, lastEnc = null;
+  function sealText(text, salt, pass){
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']).then(function(km){
+      return crypto.subtle.deriveKey({ name:'PBKDF2', salt: b64ToBytes(salt), iterations:200000, hash:'SHA-256' },
+        km, { name:'AES-GCM', length:256 }, false, ['encrypt']);
+    }).then(function(key){
+      var iv = new Uint8Array(12);
+      crypto.getRandomValues(iv);
+      return crypto.subtle.encrypt({ name:'AES-GCM', iv:iv }, key, enc.encode(text)).then(function(ct){
+        var out = new Uint8Array(iv.length + ct.byteLength);
+        out.set(iv, 0); out.set(new Uint8Array(ct), iv.length);
+        var s = '';
+        for(var i=0;i<out.length;i++) s += String.fromCharCode(out[i]);
+        return btoa(s);
+      });
+    });
+  }
+  function writeBack(doc){
+    var c = cfg();
+    if(!c) return Promise.resolve(false);
+    return fetch(API + c.id, { headers:{ Authorization:'Bearer ' + c.token, Accept:'application/vnd.github+json' }, cache:'no-store' })
+      .then(function(r){ return r.json(); })
+      .then(function(j){
+        var f = (j.files || {})[FILE];
+        var payload = JSON.parse((f && f.content) || '{}');
+        var rev = Number(payload.rev) || 0;
+        var build = (Number(payload.enc) === 1)
+          ? openText(payload.doc, payload.salt || PASS.salt, PASS.pass).then(function(text){
+              var d = JSON.parse(text);
+              d.devNames = doc.devNames;
+              d.visits = doc.visits;
+              return sealText(JSON.stringify(d), payload.salt || PASS.salt, PASS.pass).then(function(sealed){
+                return { rev:rev, doc:sealed, enc:1, salt: payload.salt || PASS.salt };
+              });
+            })
+          : Promise.resolve((function(){
+              var d = payload.doc || {};
+              d.devNames = doc.devNames;
+              d.visits = doc.visits;
+              return { rev:rev, doc:d, enc:0, salt:'' };
+            })());
+        return build.then(function(o){
+          var body = { files: {} };
+          body.files[FILE] = { content: JSON.stringify({ rev:o.rev+1, doc:o.doc, enc:o.enc, salt:o.salt,
+            appVersion: payload.appVersion || APP_VER, updatedAt: Date.now() }) };
+          return fetch(API + c.id, { method:'PATCH',
+            headers:{ Authorization:'Bearer ' + c.token, 'Content-Type':'application/json' },
+            body: JSON.stringify(body) }).then(function(r){ return r.ok; });
+        });
+      });
+  }
+  document.addEventListener('click', function(ev){
+    var show = ev.target.closest('[data-show-tag]');
+    if(show){
+      var row = document.querySelector('[data-tag-row="' + show.getAttribute('data-show-tag') + '"]');
+      if(row) row.hidden = false;
+      return;
+    }
+    var btn = ev.target.closest('[data-tag]');
+    if(!btn) return;
+    var who = btn.getAttribute('data-tag');
+    var dev = btn.getAttribute('data-dev');
+    if(!lastDoc || !dev) return;
+    if(!lastDoc.devNames) lastDoc.devNames = {};
+    lastDoc.devNames[dev] = who;
+    (lastDoc.visits || []).forEach(function(v){
+      if(v && v.dev === dev){ v.who = who; v.upd = Date.now(); }   // 改标注时，这台设备以前的记录一起改
+    });
+    el('list').insertAdjacentHTML('beforebegin', '<p class="saved-tip" id="savingTip">正在保存…</p>');
+    writeBack(lastDoc).then(function(ok){
+      var tip = document.getElementById('savingTip');
+      if(tip) tip.textContent = ok ? '已保存（以后这台设备自动标成' + who + '）' : '保存失败，检查一下网络或口令';
+      render(lastDoc.visits);
+    });
+  });
   el('doPass').addEventListener('click', function(){
     var v = el('pass').value;
     if(!v){ el('pass').focus(); return; }
