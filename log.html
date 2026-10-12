@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f3f4f1">
+<title>我们的小空间 · 访问记录</title>
+<style>
+  :root{--bg:#f3f4f1;--surface:#fff;--surface-2:#f6f7f4;--line:#e4e6e1;--line-strong:#d3d6cf;
+    --text:#1b1f1c;--muted:#6b726c;--muted-2:#9aa09b;--sis:#2f8f61;--sis-soft:#e8f4ee;--bro:#4a5fc4;--bro-soft:#eaedfa}
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .app{max-width:520px;margin:0 auto;padding:14px 14px 40px}
+  h1{font-size:18px;margin:6px 0 2px}
+  .sub{font-size:12px;color:var(--muted-2);margin:0 0 14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px}
+  .pool{display:flex;gap:10px;padding:14px}
+  .pool > div{flex:1}
+  .pool .k{font-size:11.5px;color:var(--muted)}
+  .pool .v{margin-top:2px;font-size:19px;font-weight:700;font-variant-numeric:tabular-nums}
+  .sec{display:flex;align-items:baseline;gap:8px;padding:16px 2px 6px}
+  .sec h2{font-size:14px;margin:0}
+  .sec span{font-size:11.5px;color:var(--muted-2)}
+  .row{display:flex;align-items:flex-start;gap:10px;padding:11px 14px;border-bottom:1px solid var(--line)}
+  .row:last-child{border-bottom:0}
+  .who{flex:0 0 auto;padding:1px 7px;border-radius:999px;font-size:10.5px;font-weight:700;margin-top:2px}
+  .who.sis{background:var(--sis-soft);color:var(--sis)}
+  .who.bro{background:var(--bro-soft);color:var(--bro)}
+  .who.none{background:var(--surface-2);color:var(--muted-2)}
+  .main{flex:1;min-width:0}
+  .t1{font-size:13.5px}
+  .t2{font-size:11.5px;color:var(--muted-2);margin-top:3px}
+  .empty{color:var(--muted-2);font-size:13px;padding:14px}
+  .acts{display:flex;gap:8px;margin-top:14px}
+  button{height:38px;padding:0 14px;border:1px solid var(--line-strong);border-radius:10px;
+    background:var(--surface);color:var(--text);font-size:13px;cursor:pointer}
+  button.primary{background:#1f2a22;color:#eef3ef;border-color:#1f2a22}
+  input{height:38px;width:100%;padding:0 12px;border:1px solid var(--line-strong);border-radius:10px;
+    background:var(--surface);font-size:14px;margin-bottom:10px}
+  .note{font-size:12px;color:var(--muted);line-height:1.7;margin-top:14px}
+  .ver{text-align:center;font-size:11.5px;color:var(--muted-2);margin-top:22px}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>访问记录</h1>
+  <p class="sub">「我们的小空间」什么时候被打开过（这台设备是谁、什么设备、几点）</p>
+
+  <div class="card pool" id="pool">
+    <div><div class="k">今天打开</div><div class="v" id="sToday">—</div></div>
+    <div><div class="k">妹妹</div><div class="v" id="sSis">—</div></div>
+    <div><div class="k">哥哥</div><div class="v" id="sBro">—</div></div>
+    <div><div class="k">最近一次</div><div class="v" id="sLast" style="font-size:13px">—</div></div>
+  </div>
+
+  <div id="needPass" hidden>
+    <div class="sec"><h2>需要隐私口令</h2></div>
+    <div class="card" style="padding:14px">
+      <p class="note" style="margin-top:0">数据是加密的，输入隐私口令才能看访问记录（只在你这台设备上用，不上传）。</p>
+      <input id="pass" type="password" placeholder="隐私口令" autocomplete="current-password">
+      <button class="primary" id="doPass" style="width:100%">解密查看</button>
+    </div>
+  </div>
+
+  <div id="needCfg" hidden>
+    <div class="card" style="padding:14px">
+      <p class="note" style="margin-top:0">这台设备还没有同步配置。<br>先用你平时那条完整链接（带 <b>?gist=…&amp;gt=…</b>）打开一次
+      「我们的小空间」，再回来刷新这个页面就能看了。</p>
+    </div>
+  </div>
+
+  <div id="list"></div>
+  <div class="acts">
+    <button id="reload">刷新</button>
+    <button id="back" class="primary">回到我们的小空间</button>
+  </div>
+  <p class="note">同一台设备 <b>30 分钟内</b>反复打开算同一次，会记成"打开 N 次"。记录跟着数据一起加密、一起同步。</p>
+  <p class="ver">程序版本 v2.8.0</p>
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var GIST_KEY = 'sister-habits-gist';
+  var PASS_KEY = 'sister-habits-pass-v1';
+  var FILE = 'daka.json';
+  var API = 'https://api.github.com/gists/';
+  var PASS = { pass:'', salt:'' };
+  var APP_VER = '2.8.0';
+
+  function cfg(){
+    try{ return JSON.parse(localStorage.getItem(GIST_KEY) || 'null'); }catch(e){ return null; }
+  }
+  function passStore(){
+    try{ return JSON.parse(localStorage.getItem(PASS_KEY) || 'null') || {}; }catch(e){ return {}; }
+  }
+  function b64ToBytes(b64){
+    var s = atob(b64), u8 = new Uint8Array(s.length);
+    for(var i=0;i<s.length;i++) u8[i] = s.charCodeAt(i);
+    return u8;
+  }
+  var keyCache = { pass:'', salt:'', key:null };
+  function deriveKey(pass, saltB64){
+    if(keyCache.pass === pass && keyCache.salt === saltB64 && keyCache.key) return Promise.resolve(keyCache.key);
+    var enc = new TextEncoder();
+    return crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']).then(function(km){
+      return crypto.subtle.deriveKey({ name:'PBKDF2', salt: b64ToBytes(saltB64), iterations:200000, hash:'SHA-256' },
+        km, { name:'AES-GCM', length:256 }, false, ['decrypt']);
+    }).then(function(key){ keyCache = { pass:pass, salt:saltB64, key:key }; return key; });
+  }
+  function openText(sealed, saltB64, pass){
+    var all = b64ToBytes(sealed);
+    var iv = all.slice(0,12), ct = all.slice(12);
+    return deriveKey(pass, saltB64).then(function(key){
+      return crypto.subtle.decrypt({ name:'AES-GCM', iv:iv }, key, ct);
+    }).then(function(buf){ return new TextDecoder().decode(buf); });
+  }
+  function el(id){ return document.getElementById(id); }
+  function pad(n){ return (n<10?'0':'')+n; }
+  function dayKey(ts){ var d = new Date(ts); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate()); }
+  function hm(ts){ var d = new Date(ts); return pad(d.getHours())+':'+pad(d.getMinutes()); }
+  function dayLabel(key){
+    var t = new Date(), today = dayKey(t.getTime());
+    var y = new Date(t.getTime() - 86400000), yk = dayKey(y.getTime());
+    if(key === today) return '今天 · ' + (t.getMonth()+1) + '月' + t.getDate() + '日';
+    if(key === yk) return '昨天 · ' + (y.getMonth()+1) + '月' + y.getDate() + '日';
+    var d = new Date(key + 'T12:00:00');
+    return (d.getMonth()+1) + '月' + d.getDate() + '日';
+  }
+  function render(visits){
+    var t = new Date(), today = dayKey(t.getTime());
+    var list = (visits || []).slice().sort(function(a,b){ return (b.last||b.ts) - (a.last||a.ts); });
+    el('sToday').textContent = list.filter(function(v){ return dayKey(v.last||v.ts) === today; }).length;
+    el('sSis').textContent = list.filter(function(v){ return v.who === '妹妹'; }).length;
+    el('sBro').textContent = list.filter(function(v){ return v.who === '哥哥'; }).length;
+    el('sLast').textContent = list.length ? (dayLabel(dayKey(list[0].last||list[0].ts)).split(' · ')[0] + ' ' + hm(list[0].last||list[0].ts)) : '—';
+    if(!list.length){ el('list').innerHTML = '<div class="card"><div class="empty">还没有访问记录（下次打开主程序就会记上）</div></div>'; return; }
+    var days = {}, order = [];
+    list.forEach(function(v){
+      var k = dayKey(v.last || v.ts);
+      if(!days[k]){ days[k] = []; order.push(k); }
+      days[k].push(v);
+    });
+    el('list').innerHTML = order.map(function(k){
+      return '<div class="sec"><h2>' + dayLabel(k) + '</h2><span>打开 ' + days[k].length + ' 次</span></div>' +
+        '<div class="card">' + days[k].map(function(v){
+          var who = v.who === '妹妹' || v.who === '哥哥' ? v.who : '未标注';
+          var cls = v.who === '妹妹' ? 'sis' : (v.who === '哥哥' ? 'bro' : 'none');
+          var times = (v.count || 1) > 1 ? (' · 打开 ' + v.count + ' 次（' + hm(v.ts) + ' 起）') : '';
+          return '<div class="row"><span class="who ' + cls + '">' + who + '</span><div class="main">' +
+            '<div class="t1">' + hm(v.last || v.ts) + ' 打开' + times + '</div>' +
+            '<div class="t2">' + (v.devName || '设备') + ' · 程序 v' + (v.v || '?') + '</div></div></div>';
+        }).join('') + '</div>';
+    }).join('');
+  }
+  function load(){
+    var c = cfg();
+    el('needCfg').hidden = !!c;
+    el('needPass').hidden = true;
+    if(!c){ el('list').innerHTML = ''; return; }
+    fetch(API + c.id, { headers: { Authorization: 'Bearer ' + c.token, Accept: 'application/vnd.github+json' }, cache: 'no-store' })
+      .then(function(r){ if(!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(j){
+        var f = (j.files || {})[FILE];
+        return f ? JSON.parse(f.content || '{}') : { rev:0, doc:null };
+      })
+      .then(function(payload){
+        var doc = payload.doc;
+        if(Number(payload.enc) === 1){
+          var ps = passStore();
+          PASS.pass = ps.pass || '';
+          PASS.salt = payload.salt || ps.salt || '';
+          if(!PASS.pass){ el('needPass').hidden = false; el('list').innerHTML = ''; return null; }
+          return openText(doc, PASS.salt, PASS.pass).then(function(text){
+            render(JSON.parse(text).visits);
+          }).catch(function(){
+            el('needPass').hidden = false;
+            el('list').innerHTML = '<div class="card"><div class="empty">口令不对，重新输一次</div></div>';
+          });
+        }
+        render((doc && doc.visits) || []);
+      })
+      .catch(function(e){
+        el('list').innerHTML = '<div class="card"><div class="empty">读不到数据：' + (e && e.message || e) + '</div></div>';
+      });
+  }
+  el('doPass').addEventListener('click', function(){
+    var v = el('pass').value;
+    if(!v){ el('pass').focus(); return; }
+    var ps = passStore();
+    ps.pass = v;
+    ps.salt = PASS.salt || ps.salt || '';
+    try{ localStorage.setItem(PASS_KEY, JSON.stringify(ps)); }catch(e){}
+    PASS.pass = v;
+    load();
+  });
+  el('reload').addEventListener('click', load);
+  el('back').addEventListener('click', function(){ location.href = './'; });
+  load();
+  setInterval(load, 60000);
+})();
+</script>
+</body>
+</html>
