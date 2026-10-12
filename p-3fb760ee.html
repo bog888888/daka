@@ -246,6 +246,7 @@
           ? openText(payload.doc, payload.salt || PASS.salt, PASS.pass).then(function(text){
               var d = JSON.parse(text);
               d.devNames = doc.devNames;
+            d.devNamesTs = doc.devNamesTs;
               d.visits = doc.visits;
               return sealText(JSON.stringify(d), payload.salt || PASS.salt, PASS.pass).then(function(sealed){
                 return { rev:rev, doc:sealed, enc:1, salt: payload.salt || PASS.salt };
@@ -254,6 +255,7 @@
           : Promise.resolve((function(){
               var d = payload.doc || {};
               d.devNames = doc.devNames;
+              d.devNamesTs = doc.devNamesTs;
               d.visits = doc.visits;
               return { rev:rev, doc:d, enc:0, salt:'' };
             })());
@@ -287,7 +289,9 @@
     if(!lastDoc || !dev) return;
     delete editingDev[dev];
     if(!lastDoc.devNames) lastDoc.devNames = {};
+    if(!lastDoc.devNamesTs || typeof lastDoc.devNamesTs !== 'object') lastDoc.devNamesTs = {};
     lastDoc.devNames[dev] = who;
+    lastDoc.devNamesTs[dev] = Date.now();
     (lastDoc.visits || []).forEach(function(v){
       if(v && v.dev === dev){ v.who = who; v.upd = Date.now(); }   // 改标注时，这台设备以前的记录一起改
     });
